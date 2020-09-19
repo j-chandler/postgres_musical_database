@@ -8,6 +8,13 @@ from sql_queries import *
 
 
 def process_song_file(cur, filepath):
+    '''
+    Reads, transforms and uploads song files from a given filepath into the songs and artists tables
+    
+    Parameters:
+        cur: A Postgres Cursor object available from Connection.cursor()
+        filepath: A string of the json file object to be loaded
+    '''
     # open song file
     with open(filepath) as _file_:
         song_json = json.load(_file_)
@@ -21,6 +28,7 @@ def process_song_file(cur, filepath):
         song_json["duration"]
     ]
     
+    #Catches Duplication Inserts
     try:
         cur.execute(song_table_insert, song_data)
     except psycopg2.IntegrityError:
@@ -42,7 +50,12 @@ def process_song_file(cur, filepath):
 
     
 def epoch_time_to_time_data(epoch_time):
-    '''Returns a list of strings of extracted columns for the time table from an epoch time string'''
+    '''
+    Returns a list of strings of extracted columns for the time table from an epoch time string
+    
+    Parameters:
+        epoch_time: A python Datetime object in epoch millisecond format
+    '''
     return [
         epoch_time.strftime("%Y-%m-%d %H:%M:%S"), 
         epoch_time.strftime("%H"),
@@ -55,6 +68,15 @@ def epoch_time_to_time_data(epoch_time):
 
 
 def process_log_file(cur, filepath):
+    '''
+    Reads, transforms and uploads log files from a given filepath into the users, time and songlplays tables.
+    
+    NOTE: The songplays table requires the artists and songs table have already been built in order to query that those tables can be queried to obtain the song and artist ID from the supplied name in the log file.
+    
+    Parameters:
+        cur: A Postgres Cursor object available from Connection.cursor()
+        filepath: A string of the json file object to be loaded
+    '''
     # open log file
     with open(filepath) as _file_:
         logs = [json.loads(log_string) for log_string in _file_.read().split("\n")]
@@ -65,9 +87,10 @@ def process_log_file(cur, filepath):
     for log in logs:
         ##### INSERTING TIME DATA #####
         epoch_time = datetime(1970, 1, 1) + timedelta(milliseconds = log['ts'])
+        time_data = epoch_time_to_time_data(epoch_time)
         
         try:
-            cur.execute(time_table_insert, epoch_time_to_time_data(epoch_time))
+            cur.execute(time_table_insert, time_data)
         except psycopg2.IntegrityError:
             cur.execute('rollback;')
         
@@ -97,7 +120,7 @@ def process_log_file(cur, filepath):
 
         # insert songplay record
         songplay_data = [
-            epoch_time,
+            time_data[0],
             log['userId'],
             log['level'],
             song_id,
@@ -111,7 +134,15 @@ def process_log_file(cur, filepath):
 
 
 def process_data(cur, conn, filepath, func):
-    # get all files matching extension from directory
+    '''
+    Walks through a given directory to load json files that are found then sending them to the desired function for execution
+    
+    Parameters:
+        cur: A Postgres Cursor object
+        conn: A Postgres Connection object
+        filepath: A string containing the root filepath for the directory to walk through
+        func: A function to execute, must contain two parameters cur and filepath for the information to be passed to
+    '''
     all_files = []
     for root, dirs, files in os.walk(filepath):
         files = glob.glob(os.path.join(root,'*.json'))
@@ -130,6 +161,10 @@ def process_data(cur, conn, filepath, func):
 
 
 def main():
+    '''
+    Builds the Postgres connection to the sparkifydb database and sends song_data and log_data to be executed by their appropriate processes.
+    Closes the database after completion.
+    '''
     conn = psycopg2.connect("host=127.0.0.1 dbname=sparkifydb user=student password=student")
     cur = conn.cursor()
 
